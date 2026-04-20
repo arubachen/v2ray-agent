@@ -270,6 +270,7 @@ initVar() {
     nginxContainerName=${V2RAY_AGENT_NGINX_CONTAINER_NAME:-nginx}
     nginxListenHost=${V2RAY_AGENT_NGINX_LISTEN_HOST:-127.0.0.1}
     nginxUpstreamHost=${V2RAY_AGENT_NGINX_UPSTREAM_HOST:-127.0.0.1}
+    nodeNamePrefix=${V2RAY_AGENT_NODE_NAME_PREFIX:-}
     if [[ "${nginxRuntime}" == "docker" ]]; then
         nginxListenHost=${V2RAY_AGENT_NGINX_LISTEN_HOST:-0.0.0.0}
         nginxUpstreamHost=${V2RAY_AGENT_NGINX_UPSTREAM_HOST:-host.docker.internal}
@@ -359,6 +360,16 @@ normalizeDirPath() {
 
 isDockerNginxRuntime() {
     [[ "${nginxRuntime}" == "docker" ]]
+}
+
+defaultNodeDisplayName() {
+    local uuid=$1
+    local protocolLabel=$2
+    local prefix="${nodeNamePrefix}"
+    if [[ -z "${prefix}" ]]; then
+        prefix="$(echo "${uuid}" | cut -d "-" -f 1)"
+    fi
+    echo "${prefix}-${protocolLabel}"
 }
 
 getNginxVersion() {
@@ -4006,7 +4017,7 @@ initXrayConfig() {
         echoContent yellow "\n请输入自定义用户名[需合法]，[回车]随机用户名"
         read -r -p '用户名:' customEmail
         if [[ -z ${customEmail} ]]; then
-            customEmail="$(echo "${uuid}" | cut -d "-" -f 1)-VLESS_TCP/TLS_Vision"
+            customEmail="$(defaultNodeDisplayName "${uuid}" "VLESS_TCP/TLS_Vision")"
         fi
     fi
 
@@ -4488,7 +4499,7 @@ initSingBoxConfig() {
         echoContent yellow "\n请输入自定义用户名[需合法]，[回车]随机用户名"
         read -r -p '用户名:' customEmail
         if [[ -z ${customEmail} ]]; then
-            customEmail="$(echo "${uuid}" | cut -d "-" -f 1)-VLESS_TCP/TLS_Vision"
+            customEmail="$(defaultNodeDisplayName "${uuid}" "VLESS_TCP/TLS_Vision")"
         fi
     fi
 
