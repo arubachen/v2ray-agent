@@ -384,7 +384,7 @@ isNginxRunning() {
 isDockerNginxPortPublished() {
     local port=$1
     local protocol=${2:-tcp}
-    docker port "${nginxContainerName}" "${port}/${protocol}" >/dev/null 2>&1
+    docker inspect "${nginxContainerName}" --format '{{json .HostConfig.PortBindings}}' 2>/dev/null | grep -q "\"${port}/${protocol}\""
 }
 
 requireDockerNginxPublishedPort() {
@@ -2327,16 +2327,7 @@ handleNginx() {
             fi
             return 0
         elif [[ "$1" == "stop" ]]; then
-            if isNginxRunning; then
-                docker stop "${nginxContainerName}" >/etc/v2ray-agent/nginx_error.log 2>&1
-                sleep 0.5
-                if isNginxRunning; then
-                    echoContent red " ---> Docker Nginx关闭失败"
-                    cat /etc/v2ray-agent/nginx_error.log
-                    exit 0
-                fi
-            fi
-            echoContent green " ---> Docker Nginx关闭成功"
+            echoContent yellow " ---> Docker Nginx模式下跳过共享容器停止"
             return 0
         fi
     fi
