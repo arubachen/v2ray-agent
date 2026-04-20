@@ -381,6 +381,26 @@ isNginxRunning() {
     [[ -n $(pgrep -f "nginx") ]]
 }
 
+isDockerNginxPortPublished() {
+    local port=$1
+    local protocol=${2:-tcp}
+    docker port "${nginxContainerName}" "${port}/${protocol}" >/dev/null 2>&1
+}
+
+requireDockerNginxPublishedPort() {
+    local port=$1
+    local protocol=${2:-tcp}
+    if ! isDockerNginxRuntime; then
+        return 0
+    fi
+
+    if ! isDockerNginxPortPublished "${port}" "${protocol}"; then
+        echoContent red " ---> Docker Nginx模式下未发布${port}/${protocol}端口"
+        echoContent yellow " ---> 该协议依赖Nginx直接监听公网端口，需先在nginx容器端口映射中加入${port}:${port}"
+        exit 0
+    fi
+}
+
 validateDockerNginxRuntime() {
     if ! isDockerNginxRuntime; then
         return 0
@@ -2047,7 +2067,12 @@ customPortFunction() {
                 if [[ -z "${btDomain}" ]]; then
                     checkDNSIP "${domain}"
                     removeNginxDefaultConf
-                    checkPortOpen "${port}" "${domain}"
+                    if isDockerNginxRuntime; then
+                        echoContent yellow " ---> Docker Nginx模式下跳过直连端口预检查"
+                        echoContent yellow " ---> 安装完成后请确认宿主机${port}端口已监听并已放行"
+                    else
+                        checkPortOpen "${port}" "${domain}"
+                    fi
                 fi
             else
                 echoContent red " ---> 端口输入错误"
@@ -4843,7 +4868,11 @@ EOF
         handleSingBox stop
         randomPathFunction
         rm -rf "${nginxConfigPath}sing_box_VMess_HTTPUpgrade.conf" >/dev/null 2>&1
-        checkPortOpen "${result[-1]}" "${domain}"
+        if isDockerNginxRuntime; then
+            requireDockerNginxPublishedPort "${result[-1]}" tcp
+        else
+            checkPortOpen "${result[-1]}" "${domain}"
+        fi
         singBoxNginxConfig "$1" "${result[-1]}"
         bootStartup nginx
         cat <<EOF >/etc/v2ray-agent/sing-box/conf/config/11_VMess_HTTPUpgrade_inbounds.json
