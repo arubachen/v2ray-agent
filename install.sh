@@ -4499,7 +4499,12 @@ initSingBoxConfig() {
         removeNginxDefaultConf
         handleSingBox stop
 
-        checkPortOpen "${result[-1]}" "${domain}"
+        if isDockerNginxRuntime; then
+            echoContent yellow " ---> Docker Nginx模式下跳过VLESS+Vision端口预检查"
+            echoContent yellow " ---> 安装完成后请确认宿主机${result[-1]}端口已监听并已放行"
+        else
+            checkPortOpen "${result[-1]}" "${domain}"
+        fi
         cat <<EOF >/etc/v2ray-agent/sing-box/conf/config/02_VLESS_TCP_inbounds.json
 {
     "inbounds":[
