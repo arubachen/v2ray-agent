@@ -268,6 +268,12 @@ initVar() {
     # nginx运行时
     nginxRuntime=${V2RAY_AGENT_NGINX_RUNTIME:-host}
     nginxContainerName=${V2RAY_AGENT_NGINX_CONTAINER_NAME:-nginx}
+    nginxListenHost=${V2RAY_AGENT_NGINX_LISTEN_HOST:-127.0.0.1}
+    nginxUpstreamHost=${V2RAY_AGENT_NGINX_UPSTREAM_HOST:-127.0.0.1}
+    if [[ "${nginxRuntime}" == "docker" ]]; then
+        nginxListenHost=${V2RAY_AGENT_NGINX_LISTEN_HOST:-0.0.0.0}
+        nginxUpstreamHost=${V2RAY_AGENT_NGINX_UPSTREAM_HOST:-host.docker.internal}
+    fi
 
     # BTPanel状态
     #	BTPanelStatus=
@@ -1619,20 +1625,20 @@ updateRedirectNginxConf() {
     redirectDomain=${domain}:${port}
 
     local nginxH2Conf=
-    nginxH2Conf="listen 127.0.0.1:31302 http2 so_keepalive=on proxy_protocol;"
+    nginxH2Conf="listen ${nginxListenHost}:31302 http2 so_keepalive=on proxy_protocol;"
     if isDockerNginxRuntime; then
-        nginxH2Conf="listen 127.0.0.1:31302 so_keepalive=on proxy_protocol;http2 on;"
+        nginxH2Conf="listen ${nginxListenHost}:31302 so_keepalive=on proxy_protocol;http2 on;"
     else
         nginxVersion=$(getNginxVersion)
 
         if echo "${nginxVersion}" | grep -q "1.25" && [[ $(echo "${nginxVersion}" | awk -F "[.]" '{print $3}') -gt 0 ]] || [[ $(echo "${nginxVersion}" | awk -F "[.]" '{print $2}') -gt 25 ]]; then
-            nginxH2Conf="listen 127.0.0.1:31302 so_keepalive=on proxy_protocol;http2 on;"
+            nginxH2Conf="listen ${nginxListenHost}:31302 so_keepalive=on proxy_protocol;http2 on;"
         fi
     fi
 
     cat <<EOF >${nginxConfigPath}alone.conf
     server {
-    		listen 127.0.0.1:31300;
+    		listen ${nginxListenHost}:31300;
     		server_name _;
     		return 403;
     }
@@ -1660,7 +1666,7 @@ server {
 		grpc_set_header X-Real-IP \$proxy_add_x_forwarded_for;
 		client_body_timeout 1071906480m;
 		grpc_read_timeout 1071906480m;
-		grpc_pass grpc://127.0.0.1:31301;
+		grpc_pass grpc://${nginxUpstreamHost}:31301;
 	}
 
 	location /${currentPath}trojangrpc {
@@ -1671,7 +1677,7 @@ server {
 		grpc_set_header X-Real-IP \$proxy_add_x_forwarded_for;
 		client_body_timeout 1071906480m;
 		grpc_read_timeout 1071906480m;
-		grpc_pass grpc://127.0.0.1:31304;
+		grpc_pass grpc://${nginxUpstreamHost}:31304;
 	}
 	location / {
     }
@@ -1696,7 +1702,7 @@ server {
  		lingering_close always;
  		grpc_read_timeout 1071906480m;
  		grpc_send_timeout 1071906480m;
-		grpc_pass grpc://127.0.0.1:31301;
+		grpc_pass grpc://${nginxUpstreamHost}:31301;
 	}
 	location / {
     }
@@ -1723,7 +1729,7 @@ server {
  		lingering_close always;
  		grpc_read_timeout 1071906480m;
  		grpc_send_timeout 1071906480m;
-		grpc_pass grpc://127.0.0.1:31301;
+		grpc_pass grpc://${nginxUpstreamHost}:31301;
 	}
 	location / {
     }
@@ -1749,7 +1755,7 @@ EOF
 
     cat <<EOF >>${nginxConfigPath}alone.conf
 server {
-	listen 127.0.0.1:31300 proxy_protocol;
+	listen ${nginxListenHost}:31300 proxy_protocol;
 	server_name ${domain};
 
 	set_real_ip_from 127.0.0.1;
@@ -1804,7 +1810,7 @@ server {
             return 444;
         }
 
-        proxy_pass                          http://127.0.0.1:31306;
+        proxy_pass                          http://${nginxUpstreamHost}:31306;
         proxy_http_version                  1.1;
         proxy_set_header Upgrade            \$http_upgrade;
         proxy_set_header Connection         "upgrade";

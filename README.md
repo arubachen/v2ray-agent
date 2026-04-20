@@ -38,6 +38,7 @@ wget -P /root -N --no-check-certificate "https://raw.githubusercontent.com/aruba
 - 宿主机配置目录已挂载到容器 `/etc/nginx/conf.d`
 - 宿主机静态目录已挂载到容器 `/usr/share/nginx/html`
 - 宿主机 `/etc/v2ray-agent/tls` 已挂载到容器 `/etc/v2ray-agent/tls`
+- 容器内可通过 `host.docker.internal` 回源到宿主机，Linux 下建议添加 `extra_hosts: ["host.docker.internal:host-gateway"]`
 - 已按所选协议映射脚本需要的端口，至少包含 `80/443`，以及脚本内部会用到的 `31300/31302` 和对应自定义端口
 
 运行脚本前可设置：
@@ -47,6 +48,7 @@ export V2RAY_AGENT_NGINX_RUNTIME=docker
 export V2RAY_AGENT_NGINX_CONTAINER_NAME=nginx
 export V2RAY_AGENT_NGINX_CONFIG_PATH=/data/v2ray-agent/nginx/conf.d
 export V2RAY_AGENT_NGINX_STATIC_PATH=/data/v2ray-agent/nginx/html
+export V2RAY_AGENT_NGINX_UPSTREAM_HOST=host.docker.internal
 ```
 
 ### 使用

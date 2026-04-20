@@ -38,6 +38,7 @@ If you want the script to reuse an existing Docker `nginx` container instead of 
 - The host config directory is mounted to `/etc/nginx/conf.d`
 - The host static directory is mounted to `/usr/share/nginx/html`
 - The host `/etc/v2ray-agent/tls` directory is mounted to `/etc/v2ray-agent/tls`
+- The container can reach the host through `host.docker.internal`; on Linux, add `extra_hosts: ["host.docker.internal:host-gateway"]`
 - The required ports are published for the selected protocol, including at least `80/443`, plus `31300/31302` and any custom port used by the script
 
 Before running the script:
@@ -47,6 +48,7 @@ export V2RAY_AGENT_NGINX_RUNTIME=docker
 export V2RAY_AGENT_NGINX_CONTAINER_NAME=nginx
 export V2RAY_AGENT_NGINX_CONFIG_PATH=/data/v2ray-agent/nginx/conf.d
 export V2RAY_AGENT_NGINX_STATIC_PATH=/data/v2ray-agent/nginx/html
+export V2RAY_AGENT_NGINX_UPSTREAM_HOST=host.docker.internal
 ```
 
 ### Usage
