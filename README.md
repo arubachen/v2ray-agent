@@ -28,7 +28,25 @@ Xray-core/sing-box 一键脚本快速安装
 ### 安装
 
 ```
-wget -P /root -N --no-check-certificate "https://raw.githubusercontent.com/mack-a/v2ray-agent/master/install.sh" && chmod 700 /root/install.sh && /root/install.sh
+wget -P /root -N --no-check-certificate "https://raw.githubusercontent.com/arubachen/v2ray-agent/master/install.sh" && chmod 700 /root/install.sh && /root/install.sh
+```
+
+### 复用已有 Docker Nginx
+
+如果希望脚本复用现有 Docker `nginx` 容器，而不是额外安装宿主机 `nginx`，请先确保：
+
+- 宿主机配置目录已挂载到容器 `/etc/nginx/conf.d`
+- 宿主机静态目录已挂载到容器 `/usr/share/nginx/html`
+- 宿主机 `/etc/v2ray-agent/tls` 已挂载到容器 `/etc/v2ray-agent/tls`
+- 已按所选协议映射脚本需要的端口，至少包含 `80/443`，以及脚本内部会用到的 `31300/31302` 和对应自定义端口
+
+运行脚本前可设置：
+
+```bash
+export V2RAY_AGENT_NGINX_RUNTIME=docker
+export V2RAY_AGENT_NGINX_CONTAINER_NAME=nginx
+export V2RAY_AGENT_NGINX_CONFIG_PATH=/data/v2ray-agent/nginx/conf.d
+export V2RAY_AGENT_NGINX_STATIC_PATH=/data/v2ray-agent/nginx/html
 ```
 
 ### 使用
@@ -55,7 +73,7 @@ vasma
 
 *   **Telegram:** [频道](https://t.me/v2rayAgentChannel) | [群组](https://t.me/technologyshare)
 *   **网站:** [官网](https://www.v2ray-agent.com/) | [备用](https://www.592083.xyz/)
-*   **反馈:** [提交 issue](https://github.com/mack-a/v2ray-agent/issues)
+*   **反馈:** [提交 issue](https://github.com/arubachen/v2ray-agent/issues)
 *   **X:** [链接](https://x.com/v2rayagent)
 
 ## 捐赠

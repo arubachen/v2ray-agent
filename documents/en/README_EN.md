@@ -28,7 +28,25 @@ Xray-core/sing-box One-click Quick Install Script
 ### Installation
 
 ```
-bash wget -P /root -N --no-check-certificate "https://raw.githubusercontent.com/mack-a/v2ray-agent/master/install.sh" && chmod 700 /root/install.sh && /root/install.sh
+wget -P /root -N --no-check-certificate "https://raw.githubusercontent.com/arubachen/v2ray-agent/master/install.sh" && chmod 700 /root/install.sh && /root/install.sh
+```
+
+### Reuse Existing Docker Nginx
+
+If you want the script to reuse an existing Docker `nginx` container instead of installing a host-level `nginx`, make sure:
+
+- The host config directory is mounted to `/etc/nginx/conf.d`
+- The host static directory is mounted to `/usr/share/nginx/html`
+- The host `/etc/v2ray-agent/tls` directory is mounted to `/etc/v2ray-agent/tls`
+- The required ports are published for the selected protocol, including at least `80/443`, plus `31300/31302` and any custom port used by the script
+
+Before running the script:
+
+```bash
+export V2RAY_AGENT_NGINX_RUNTIME=docker
+export V2RAY_AGENT_NGINX_CONTAINER_NAME=nginx
+export V2RAY_AGENT_NGINX_CONFIG_PATH=/data/v2ray-agent/nginx/conf.d
+export V2RAY_AGENT_NGINX_STATIC_PATH=/data/v2ray-agent/nginx/html
 ```
 
 ### Usage
@@ -55,7 +73,7 @@ vasma
 
 *   **Telegram:** [Channel](https://t.me/v2rayAgentChannel) | [Group](https://t.me/technologyshare)
 *   **Website:** [Official](https://www.v2ray-agent.com/) | [Backup](https://www.592083.xyz/)
-*   **Feedback:** [Submit an issue](https://github.com/mack-a/v2ray-agent/issues)
+*   **Feedback:** [Submit an issue](https://github.com/arubachen/v2ray-agent/issues)
 
 ## Donation
 

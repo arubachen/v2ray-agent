@@ -258,13 +258,24 @@ initVar() {
     # tls安装失败后尝试的次数
     installTLSCount=
 
+    # 仓库地址
+    repoOwner=${V2RAY_AGENT_REPO_OWNER:-arubachen}
+    repoName=${V2RAY_AGENT_REPO_NAME:-v2ray-agent}
+    repoBranch=${V2RAY_AGENT_REPO_BRANCH:-master}
+    repoGitBase="https://github.com/${repoOwner}/${repoName}"
+    repoRawBase="https://raw.githubusercontent.com/${repoOwner}/${repoName}/${repoBranch}"
+
+    # nginx运行时
+    nginxRuntime=${V2RAY_AGENT_NGINX_RUNTIME:-host}
+    nginxContainerName=${V2RAY_AGENT_NGINX_CONTAINER_NAME:-nginx}
+
     # BTPanel状态
     #	BTPanelStatus=
     # 宝塔域名
     btDomain=
     # nginx配置文件路径
-    nginxConfigPath=/etc/nginx/conf.d/
-    nginxStaticPath=/usr/share/nginx/html/
+    nginxConfigPath=${V2RAY_AGENT_NGINX_CONFIG_PATH:-/etc/nginx/conf.d/}
+    nginxStaticPath=${V2RAY_AGENT_NGINX_STATIC_PATH:-/usr/share/nginx/html/}
 
     # 是否为预览版
     prereleaseStatus=false
@@ -332,6 +343,82 @@ initVar() {
     # 上次安装配置状态
     lastInstallationConfig=
 
+}
+
+normalizeDirPath() {
+    local path=$1
+    path=${path%/}
+    echo "${path}/"
+}
+
+isDockerNginxRuntime() {
+    [[ "${nginxRuntime}" == "docker" ]]
+}
+
+getNginxVersion() {
+    if isDockerNginxRuntime; then
+        if docker ps --format '{{.Names}}' | grep -qx "${nginxContainerName}"; then
+            docker exec "${nginxContainerName}" nginx -v 2>&1
+            return 0
+        fi
+        echo "nginx version: nginx/1.25.0"
+        return 0
+    fi
+    nginx -v 2>&1
+}
+
+isNginxRunning() {
+    if isDockerNginxRuntime; then
+        docker ps --format '{{.Names}}' | grep -qx "${nginxContainerName}"
+        return $?
+    fi
+    [[ -n $(pgrep -f "nginx") ]]
+}
+
+validateDockerNginxRuntime() {
+    if ! isDockerNginxRuntime; then
+        return 0
+    fi
+
+    if ! command -v docker >/dev/null 2>&1; then
+        echoContent red " ---> 检测到Docker Nginx模式，但未安装docker"
+        exit 0
+    fi
+
+    if ! docker inspect "${nginxContainerName}" >/dev/null 2>&1; then
+        echoContent red " ---> 未找到Docker Nginx容器:${nginxContainerName}"
+        exit 0
+    fi
+
+    nginxConfigPath=$(normalizeDirPath "${nginxConfigPath}")
+    nginxStaticPath=$(normalizeDirPath "${nginxStaticPath}")
+
+    mkdir -p "${nginxConfigPath}" >/dev/null 2>&1
+    mkdir -p "${nginxStaticPath}" >/dev/null 2>&1
+
+    local realConfigPath realStaticPath realTLSPath mounts
+    realConfigPath=$(realpath -m "${nginxConfigPath}")
+    realStaticPath=$(realpath -m "${nginxStaticPath}")
+    realTLSPath=$(realpath -m /etc/v2ray-agent/tls)
+    mounts=$(docker inspect "${nginxContainerName}" --format '{{range .Mounts}}{{println .Source "->" .Destination}}{{end}}')
+
+    if ! echo "${mounts}" | grep -Fq "${realConfigPath} -> /etc/nginx/conf.d"; then
+        echoContent red " ---> Docker Nginx未挂载配置目录到/etc/nginx/conf.d"
+        echoContent yellow " ---> 当前脚本配置目录:${realConfigPath}"
+        exit 0
+    fi
+
+    if ! echo "${mounts}" | grep -Fq "${realStaticPath} -> /usr/share/nginx/html"; then
+        echoContent red " ---> Docker Nginx未挂载静态目录到/usr/share/nginx/html"
+        echoContent yellow " ---> 当前脚本静态目录:${realStaticPath}"
+        exit 0
+    fi
+
+    if ! echo "${mounts}" | grep -Fq "${realTLSPath} -> /etc/v2ray-agent/tls"; then
+        echoContent red " ---> Docker Nginx未挂载证书目录到/etc/v2ray-agent/tls"
+        echoContent yellow " ---> 请将${realTLSPath}挂载到容器内同路径"
+        exit 0
+    fi
 }
 
 # 读取tls证书详情
@@ -1031,6 +1118,8 @@ cleanUp() {
     fi
 }
 initVar "$1"
+nginxConfigPath=$(normalizeDirPath "${nginxConfigPath}")
+nginxStaticPath=$(normalizeDirPath "${nginxStaticPath}")
 checkSystem
 checkCPUVendor
 
@@ -1068,7 +1157,7 @@ mkdirTools() {
 
     mkdir -p /etc/v2ray-agent/sing-box/conf/config
 
-    mkdir -p /usr/share/nginx/html/
+    mkdir -p "${nginxStaticPath}"
 }
 # 检测root
 checkRoot() {
@@ -1206,11 +1295,14 @@ installTools() {
     if echo "${selectCustomInstallType}" | grep -qwE ",7,|,8,|,7,8,"; then
         echoContent green " ---> 检测到无需依赖Nginx的服务，跳过安装"
     else
-        if ! nginx >/dev/null 2>&1; then
+        if isDockerNginxRuntime; then
+            echoContent green " ---> 检测到Docker Nginx运行模式，跳过安装"
+            validateDockerNginxRuntime
+        elif ! nginx >/dev/null 2>&1; then
             echoContent green " ---> 安装nginx"
             installNginxTools
         else
-            nginxVersion=$(nginx -v 2>&1)
+            nginxVersion=$(getNginxVersion)
             nginxVersion=$(echo "${nginxVersion}" | awk -F "[n][g][i][n][x][/]" '{print $2}' | awk -F "[.]" '{print $2}')
             if [[ ${nginxVersion} -lt 14 ]]; then
                 read -r -p "读取到当前的Nginx版本不支持gRPC，会导致安装失败，是否卸载Nginx后重新安装 ？[y/n]:" unInstallNginxStatus
@@ -1269,6 +1361,9 @@ installTools() {
 # 开机启动
 bootStartup() {
     local serviceName=$1
+    if isDockerNginxRuntime && [[ "${serviceName}" == "nginx" ]]; then
+        return 0
+    fi
     if [[ "${release}" == "alpine" ]]; then
         rc-update add "${serviceName}" default
     else
@@ -1278,6 +1373,10 @@ bootStartup() {
 }
 # 安装Nginx
 installNginxTools() {
+    if isDockerNginxRuntime; then
+        validateDockerNginxRuntime
+        return 0
+    fi
 
     if [[ "${release}" == "debian" ]]; then
         sudo apt install gnupg2 ca-certificates lsb-release -y >/dev/null 2>&1
@@ -1444,7 +1543,11 @@ EOF
         checkPortOpenResult=$(curl -s -m 10 "http://${domain}:${port}/checkPort")
         localIP=$(curl -s -m 10 "http://${domain}:${port}/ip")
         rm "${nginxConfigPath}checkPortOpen.conf"
-        handleNginx stop
+        if isDockerNginxRuntime; then
+            handleNginx start
+        else
+            handleNginx stop
+        fi
         if [[ "${checkPortOpenResult}" == "fjkvymb6len" ]]; then
             echoContent green " ---> 检测到${port}端口已开放"
         else
@@ -1517,10 +1620,14 @@ updateRedirectNginxConf() {
 
     local nginxH2Conf=
     nginxH2Conf="listen 127.0.0.1:31302 http2 so_keepalive=on proxy_protocol;"
-    nginxVersion=$(nginx -v 2>&1)
-
-    if echo "${nginxVersion}" | grep -q "1.25" && [[ $(echo "${nginxVersion}" | awk -F "[.]" '{print $3}') -gt 0 ]] || [[ $(echo "${nginxVersion}" | awk -F "[.]" '{print $2}') -gt 25 ]]; then
+    if isDockerNginxRuntime; then
         nginxH2Conf="listen 127.0.0.1:31302 so_keepalive=on proxy_protocol;http2 on;"
+    else
+        nginxVersion=$(getNginxVersion)
+
+        if echo "${nginxVersion}" | grep -q "1.25" && [[ $(echo "${nginxVersion}" | awk -F "[.]" '{print $3}') -gt 0 ]] || [[ $(echo "${nginxVersion}" | awk -F "[.]" '{print $2}') -gt 25 ]]; then
+            nginxH2Conf="listen 127.0.0.1:31302 so_keepalive=on proxy_protocol;http2 on;"
+        fi
     fi
 
     cat <<EOF >${nginxConfigPath}alone.conf
@@ -1662,12 +1769,16 @@ singBoxNginxConfig() {
 
     local nginxH2Conf=
     nginxH2Conf="listen ${port} http2 so_keepalive=on ssl;"
-    nginxVersion=$(nginx -v 2>&1)
+    if isDockerNginxRuntime; then
+        nginxH2Conf="listen ${port} so_keepalive=on ssl;http2 on;"
+    else
+        nginxVersion=$(getNginxVersion)
+    fi
 
     local singBoxNginxSSL=
     singBoxNginxSSL="ssl_certificate /etc/v2ray-agent/tls/${domain}.crt;ssl_certificate_key /etc/v2ray-agent/tls/${domain}.key;"
 
-    if echo "${nginxVersion}" | grep -q "1.25" && [[ $(echo "${nginxVersion}" | awk -F "[.]" '{print $3}') -gt 0 ]] || [[ $(echo "${nginxVersion}" | awk -F "[.]" '{print $2}') -gt 25 ]]; then
+    if ! isDockerNginxRuntime && { echo "${nginxVersion}" | grep -q "1.25" && [[ $(echo "${nginxVersion}" | awk -F "[.]" '{print $3}') -gt 0 ]] || [[ $(echo "${nginxVersion}" | awk -F "[.]" '{print $2}') -gt 25 ]]; }; then
         nginxH2Conf="listen ${port} so_keepalive=on ssl;http2 on;"
     fi
 
@@ -2108,9 +2219,9 @@ nginxBlog() {
             #  randomNum=$((RANDOM % 6 + 1))
             randomNum=$(randomNum 1 9)
             if [[ "${release}" == "alpine" ]]; then
-                wget -q -P "${nginxStaticPath}" "https://raw.githubusercontent.com/mack-a/v2ray-agent/master/fodder/blog/unable/html${randomNum}.zip"
+                wget -q -P "${nginxStaticPath}" "${repoRawBase}/fodder/blog/unable/html${randomNum}.zip"
             else
-                wget -q "${wgetShowProgressStatus}" -P "${nginxStaticPath}" "https://raw.githubusercontent.com/mack-a/v2ray-agent/master/fodder/blog/unable/html${randomNum}.zip"
+                wget -q "${wgetShowProgressStatus}" -P "${nginxStaticPath}" "${repoRawBase}/fodder/blog/unable/html${randomNum}.zip"
             fi
 
             unzip -o "${nginxStaticPath}html${randomNum}.zip" -d "${nginxStaticPath}" >/dev/null
@@ -2123,9 +2234,9 @@ nginxBlog() {
         rm -rf "${nginxStaticPath}*"
 
         if [[ "${release}" == "alpine" ]]; then
-            wget -q -P "${nginxStaticPath}" "https://raw.githubusercontent.com/mack-a/v2ray-agent/master/fodder/blog/unable/html${randomNum}.zip"
+            wget -q -P "${nginxStaticPath}" "${repoRawBase}/fodder/blog/unable/html${randomNum}.zip"
         else
-            wget -q "${wgetShowProgressStatus}" -P "${nginxStaticPath}" "https://raw.githubusercontent.com/mack-a/v2ray-agent/master/fodder/blog/unable/html${randomNum}.zip"
+            wget -q "${wgetShowProgressStatus}" -P "${nginxStaticPath}" "${repoRawBase}/fodder/blog/unable/html${randomNum}.zip"
         fi
 
         unzip -o "${nginxStaticPath}html${randomNum}.zip" -d "${nginxStaticPath}" >/dev/null
@@ -2160,6 +2271,44 @@ updateSELinuxHTTPPortT() {
 
 # 操作Nginx
 handleNginx() {
+    if isDockerNginxRuntime; then
+        validateDockerNginxRuntime
+
+        if [[ "$1" == "start" ]]; then
+            if isNginxRunning; then
+                docker exec "${nginxContainerName}" nginx -t >/etc/v2ray-agent/nginx_error.log 2>&1
+                if [[ $? -ne 0 ]]; then
+                    echoContent red " ---> Docker Nginx配置校验失败"
+                    cat /etc/v2ray-agent/nginx_error.log
+                    exit 0
+                fi
+                docker kill --signal=HUP "${nginxContainerName}" >/dev/null 2>&1
+                echoContent green " ---> Docker Nginx重载成功"
+            else
+                docker start "${nginxContainerName}" >/etc/v2ray-agent/nginx_error.log 2>&1
+                sleep 0.5
+                if ! isNginxRunning; then
+                    echoContent red " ---> Docker Nginx启动失败"
+                    cat /etc/v2ray-agent/nginx_error.log
+                    exit 0
+                fi
+                echoContent green " ---> Docker Nginx启动成功"
+            fi
+            return 0
+        elif [[ "$1" == "stop" ]]; then
+            if isNginxRunning; then
+                docker stop "${nginxContainerName}" >/etc/v2ray-agent/nginx_error.log 2>&1
+                sleep 0.5
+                if isNginxRunning; then
+                    echoContent red " ---> Docker Nginx关闭失败"
+                    cat /etc/v2ray-agent/nginx_error.log
+                    exit 0
+                fi
+            fi
+            echoContent green " ---> Docker Nginx关闭成功"
+            return 0
+        fi
+    fi
 
     if ! echo "${selectCustomInstallType}" | grep -qwE ",7,|,8,|,7,8," && [[ -z $(pgrep -f "nginx") ]] && [[ "$1" == "start" ]]; then
         if [[ "${release}" == "alpine" ]]; then
@@ -5622,9 +5771,9 @@ updateNginxBlog() {
         rm -rf "${nginxStaticPath}*"
 
         if [[ "${release}" == "alpine" ]]; then
-            wget -q -P "${nginxStaticPath}" "https://raw.githubusercontent.com/mack-a/v2ray-agent/master/fodder/blog/unable/html${selectInstallNginxBlogType}.zip"
+            wget -q -P "${nginxStaticPath}" "${repoRawBase}/fodder/blog/unable/html${selectInstallNginxBlogType}.zip"
         else
-            wget -q "${wgetShowProgressStatus}" -P "${nginxStaticPath}" "https://raw.githubusercontent.com/mack-a/v2ray-agent/master/fodder/blog/unable/html${selectInstallNginxBlogType}.zip"
+            wget -q "${wgetShowProgressStatus}" -P "${nginxStaticPath}" "${repoRawBase}/fodder/blog/unable/html${selectInstallNginxBlogType}.zip"
         fi
 
         unzip -o "${nginxStaticPath}html${selectInstallNginxBlogType}.zip" -d "${nginxStaticPath}" >/dev/null
@@ -6238,9 +6387,9 @@ updateV2RayAgent() {
     echoContent skyBlue "\n进度  $1/${totalProgress} : 更新v2ray-agent脚本"
     rm -rf /etc/v2ray-agent/install.sh
     if [[ "${release}" == "alpine" ]]; then
-        wget -c -q -P /etc/v2ray-agent/ -N --no-check-certificate "https://raw.githubusercontent.com/mack-a/v2ray-agent/master/install.sh"
+        wget -c -q -P /etc/v2ray-agent/ -N --no-check-certificate "${repoRawBase}/install.sh"
     else
-        wget -c -q "${wgetShowProgressStatus}" -P /etc/v2ray-agent/ -N --no-check-certificate "https://raw.githubusercontent.com/mack-a/v2ray-agent/master/install.sh"
+        wget -c -q "${wgetShowProgressStatus}" -P /etc/v2ray-agent/ -N --no-check-certificate "${repoRawBase}/install.sh"
     fi
 
     sudo chmod 700 /etc/v2ray-agent/install.sh
@@ -6251,7 +6400,7 @@ updateV2RayAgent() {
     echoContent yellow " ---> 请手动执行[vasma]打开脚本"
     echoContent green " ---> 当前版本：${version}\n"
     echoContent yellow "如更新不成功，请手动执行下面命令\n"
-    echoContent skyBlue "wget -P /root -N --no-check-certificate https://raw.githubusercontent.com/mack-a/v2ray-agent/master/install.sh && chmod 700 /root/install.sh && /root/install.sh"
+    echoContent skyBlue "wget -P /root -N --no-check-certificate ${repoRawBase}/install.sh && chmod 700 /root/install.sh && /root/install.sh"
     echo
     exit 0
 }
@@ -9376,9 +9525,9 @@ subscribe() {
 
                         echoContent skyBlue " ---> 下载 sing-box 通用配置文件"
                         if [[ "${release}" == "alpine" ]]; then
-                            wget -O "/etc/v2ray-agent/subscribe/sing-box/${emailMd5}" -q "https://raw.githubusercontent.com/mack-a/v2ray-agent/master/documents/sing-box.json"
+                            wget -O "/etc/v2ray-agent/subscribe/sing-box/${emailMd5}" -q "${repoRawBase}/documents/sing-box.json"
                         else
-                            wget -O "/etc/v2ray-agent/subscribe/sing-box/${emailMd5}" -q "${wgetShowProgressStatus}" "https://raw.githubusercontent.com/mack-a/v2ray-agent/master/documents/sing-box.json"
+                            wget -O "/etc/v2ray-agent/subscribe/sing-box/${emailMd5}" -q "${wgetShowProgressStatus}" "${repoRawBase}/documents/sing-box.json"
                         fi
 
                         jq ".outbounds=$(jq ".outbounds|map(if has(\"outbounds\") then .outbounds += $(jq ".|map(.tag)" "/etc/v2ray-agent/subscribe_local/sing-box/${email}") else . end)" "/etc/v2ray-agent/subscribe/sing-box/${emailMd5}")" "/etc/v2ray-agent/subscribe/sing-box/${emailMd5}" >"/etc/v2ray-agent/subscribe/sing-box/${emailMd5}_tmp" && mv "/etc/v2ray-agent/subscribe/sing-box/${emailMd5}_tmp" "/etc/v2ray-agent/subscribe/sing-box/${emailMd5}"
@@ -9948,7 +10097,7 @@ menu() {
     echoContent red "\n=============================================================="
     echoContent green "作者：mack-a"
     echoContent green "当前版本：v3.5.13"
-    echoContent green "Github：https://github.com/mack-a/v2ray-agent"
+    echoContent green "Github：${repoGitBase}"
     echoContent green "描述：八合一共存脚本\c"
     showInstallStatus
     checkWgetShowProgress
